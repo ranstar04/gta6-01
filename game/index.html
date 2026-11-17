@@ -3,17 +3,152 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
+<title>SOLMARA — Open-World Crime</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1410;
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #f5efe4; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .screen { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    flex-direction: column; text-align: center; background: rgba(10, 8, 14, 0.55); z-index: 20; }
+  .panel { background: rgba(16, 14, 22, 0.88); border: 2px solid #d9a441; border-radius: 12px;
+    padding: 28px 40px; max-width: 640px; box-shadow: 0 8px 40px rgba(0,0,0,0.6); }
+  .panel h1 { margin: 0 0 4px; font-size: 56px; letter-spacing: 6px; color: #ffd700;
+    text-shadow: 0 3px 0 #7a4a00, 0 6px 24px rgba(0,0,0,0.8); }
+  .panel h2 { margin: 0 0 12px; font-size: 30px; color: #ffd700; letter-spacing: 3px; }
+  .tagline { font-style: italic; color: #e8c98a; margin: 0 0 18px; font-size: 17px; }
+  .panel p { margin: 8px 0; font-size: 15px; line-height: 1.5; color: #ddd6c4; }
+  .stats { display: flex; gap: 28px; justify-content: center; margin: 14px 0 20px; font-size: 15px; }
+  .stats b { color: #ffd700; }
+  button { display: block; width: 280px; margin: 8px auto; padding: 12px 16px; font-size: 17px;
+    font-weight: 700; color: #1a1410; background: #ffd700; border: none; border-radius: 8px;
+    cursor: pointer; letter-spacing: 1px; }
+  button:hover { background: #ffdf4d; }
+  button.ghost { background: transparent; color: #ffd700; border: 2px solid #ffd700; }
+  button.ghost:hover { background: rgba(255, 215, 0, 0.15); }
+  #howto { display: none; text-align: left; margin-top: 12px; font-size: 14px; line-height: 1.7;
+    background: rgba(255,255,255,0.06); border-radius: 8px; padding: 12px 16px; }
+  #howto b { color: #ffd700; }
+  /* HUD */
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 10; display: none; }
+  .hud-box { position: absolute; background: rgba(10, 10, 16, 0.62); border-radius: 8px; padding: 8px 12px;
+    font-size: 15px; font-weight: 600; text-shadow: 0 1px 2px #000; }
+  #health-box { top: 14px; left: 14px; width: 220px; }
+  #health-bar { height: 12px; background: rgba(255,255,255,0.18); border-radius: 6px; overflow: hidden; margin-top: 4px; }
+  #health-fill { height: 100%; width: 100%; background: #4ae08a; border-radius: 6px; transition: width 0.2s; }
+  #health-fill.low { background: #e04040; }
+  #money-box { top: 14px; right: 204px; color: #7dff9a; font-size: 19px; }
+  #stars { top: 14px; right: 14px; font-size: 24px; letter-spacing: 2px; color: #ffd700; }
+  #stars.hot { color: #ff5040; animation: pulse 0.7s infinite alternate; }
+  @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.08); } }
+  #objective-box { top: 64px; left: 14px; max-width: 420px; }
+  #objective-box .label { color: #ffd700; font-size: 12px; letter-spacing: 2px; }
+  #clock { top: 64px; right: 204px; }
+  #ammo { bottom: 64px; right: 14px; font-size: 17px; }
+  #shells { bottom: 110px; right: 14px; color: #ffd700; }
+  #speed { bottom: 14px; right: 14px; font-size: 26px; color: #fff; display: none; }
+  #speed small { font-size: 13px; color: #ccc; }
+  #feed { bottom: 14px; left: 14px; max-width: 440px; font-size: 14px; }
+  #feed div { margin-top: 3px; color: #ffe9a8; }
+  #hint { bottom: 14px; left: 50%; transform: translateX(-50%); font-size: 13px; color: #cfc8b8;
+    background: rgba(10,10,16,0.5); padding: 6px 14px; border-radius: 16px; white-space: nowrap; }
+  #minimap { position: absolute; top: 104px; right: 14px; width: 180px; height: 180px;
+    border: 2px solid rgba(255,255,255,0.35); border-radius: 50%; background: rgba(10,16,12,0.7); }
+  #crosshair { position: absolute; top: 50%; left: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px;
+    font-size: 18px; color: rgba(255,255,255,0.85); text-align: center; line-height: 18px; }
+  .vignette { position: fixed; inset: 0; pointer-events: none; z-index: 5;
+    background: radial-gradient(ellipse at center, transparent 62%, rgba(0,0,0,0.38) 100%); }
 </style>
+<script type="importmap">{"imports":{"three":"./vendor/three/three.module.min.js"}}</script>
 </head>
 <body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
+<canvas id="game" aria-label="SOLMARA: open-world crime game in the sun-soaked coastal city of Solmara"></canvas>
+<div class="vignette"></div>
 <p id="status" role="status" aria-live="polite"></p>
+
+<div id="hud">
+  <div class="hud-box" id="health-box">ROOK VEGA <span id="health-text">100</span><div id="health-bar"><div id="health-fill"></div></div></div>
+  <div class="hud-box" id="money-box"><span id="money">$0</span></div>
+  <div class="hud-box" id="stars">☆☆☆☆☆</div>
+  <div class="hud-box" id="objective-box"><div class="label">OBJECTIVE</div><div id="objective">Reach the Gull &amp; Anchor diner</div></div>
+  <div class="hud-box" id="clock">16:00</div>
+  <canvas id="minimap" width="180" height="180"></canvas>
+  <div class="hud-box" id="ammo">🔫 12 / 60</div>
+  <div class="hud-box" id="shells">🐚 0/10</div>
+  <div class="hud-box" id="speed"><span id="speed-num">0</span> <small>km/h</small></div>
+  <div class="hud-box" id="feed"></div>
+  <div id="hint"></div>
+  <div id="crosshair">+</div>
+</div>
+
+<div class="screen" id="title-screen">
+  <div class="panel">
+    <h1>SOLMARA</h1>
+    <p class="tagline">Sun, salt, and sins — a coastal city that never sleeps.</p>
+    <p>Rook Vega is back in Solmara after five years — in debt to Mama Izzy, hunted by Detective
+    Mara Quinn, and one job away from freedom. Steal cars, dodge the law, run six missions,
+    and take the city back from Silas Kross.</p>
+    <div class="stats"><span>Best cash <b id="best-money">$0</b></span><span>Missions <b id="missions-done">0/6</b></span></div>
+    <button id="btn-continue">CONTINUE</button>
+    <button id="btn-new" class="ghost">NEW GAME</button>
+    <button id="btn-how" class="ghost">HOW TO PLAY</button>
+    <div id="howto">
+      <b>WASD</b> move / drive · <b>Shift</b> sprint · <b>Space</b> jump / handbrake<br>
+      <b>Mouse</b> look (click to lock) · <b>Click</b> shoot · <b>F</b> punch<br>
+      <b>E</b> enter / steal a car · <b>Esc / P</b> pause · <b>M</b> mute<br>
+      Steal cars, run missions for Mama Izzy, dodge the police, collect 10 golden shells,
+      and drive a Corto taxi for fares. Wanted stars fade when you lose the tail —
+      or pay $150 at Fresh Coat garage for a repaint.
+    </div>
+  </div>
+</div>
+
+<div class="screen" id="pause-screen" style="display:none">
+  <div class="panel">
+    <h2>PAUSED</h2>
+    <p>Solmara waits for no one — except right now.</p>
+    <button id="btn-resume">RESUME</button>
+    <button id="btn-restart-mission" class="ghost">RESTART MISSION</button>
+    <button id="btn-save" class="ghost">SAVE GAME</button>
+    <button id="btn-quit-title" class="ghost">QUIT TO TITLE</button>
+  </div>
+</div>
+
+<div class="screen" id="busted-screen" style="display:none">
+  <div class="panel">
+    <h2>BUSTED</h2>
+    <p>Detective Quinn finally caught up with you. Fine paid, record wiped — for now.</p>
+    <button id="btn-busted-ok">BACK ON THE STREETS</button>
+  </div>
+</div>
+
+<div class="screen" id="wasted-screen" style="display:none">
+  <div class="panel">
+    <h2>WASTED</h2>
+    <p>Rook Vega went down in the streets of Solmara. The city moves on.</p>
+    <button id="btn-wasted-ok">TRY AGAIN</button>
+  </div>
+</div>
+
+<div class="screen" id="mission-screen" style="display:none">
+  <div class="panel">
+    <h2>MISSION PASSED</h2>
+    <p id="mission-text">Well done, Rook.</p>
+    <button id="btn-mission-ok">CONTINUE</button>
+  </div>
+</div>
+
+<div class="screen" id="kingpin-screen" style="display:none">
+  <div class="panel">
+    <h1 style="font-size:42px">SOLMARA KINGPIN</h1>
+    <p class="tagline">All six missions complete. The Golden Gull is yours.</p>
+    <p>Silas Kross is finished, Izzy is paid, and Detective Quinn is looking the other way.
+    Solmara belongs to Rook Vega now.</p>
+    <button id="btn-kingpin-again">PLAY AGAIN</button>
+    <button id="btn-kingpin-title" class="ghost">BACK TO TITLE</button>
+  </div>
+</div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>
