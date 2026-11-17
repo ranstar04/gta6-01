@@ -1,53 +1,87 @@
-// Keyboard and pointer input. Held keys give a steering direction; one-shot presses (start or
-// restart, pause) are queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice.
+// Keyboard + mouse + pointer lock. Action flags are read by the player / vehicle code.
+import { KEYS } from './config.js';
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
-
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
-
-export function createInput(target) {
-  let left = false;
-  let right = false;
-  let actions = 0;
-
-  window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (CONFIRM.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_CONFIRM;
-    } else if (PAUSE.has(event.code)) {
-      if (!event.repeat) actions |= ACTION_PAUSE;
-    } else return;
-    event.preventDefault();
-  });
-  window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
-  });
-  // A key released while the tab is hidden never sends keyup: let go of everything on blur.
-  window.addEventListener('blur', () => {
-    left = false;
-    right = false;
-  });
-  target.addEventListener('pointerdown', () => {
-    actions |= ACTION_CONFIRM;
-  });
-
-  return {
-    /** -1 for left, 1 for right, 0 for neither or both. */
-    direction() {
-      return (right ? 1 : 0) - (left ? 1 : 0);
+export function createInput(canvas) {
+  const keys = new Set();
+  const input = {
+    keys,
+    mouseDX: 0,
+    mouseDY: 0,
+    mouseDown: false,
+    pointerLocked: false,
+    shootPressed: false,
+    // One-shot flags, consumed by the loop each frame.
+    jumpQueued: false,
+    enterQueued: false,
+    punchQueued: false,
+    pauseQueued: false,
+    muteQueued: false,
+    anyKey() {
+      return keys.size > 0;
     },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
-      return taken;
+    axis(name) {
+      const [neg, pos] = name === 'moveX' ? ['left', 'right'] : ['up', 'down'];
+      let v = 0;
+      if (KEYS[neg].some((k) => keys.has(k))) v -= 1;
+      if (KEYS[pos].some((k) => keys.has(k))) v += 1;
+      return v;
+    },
+    sprint() {
+      return KEYS.sprint.some((k) => keys.has(k));
+    },
+    handbrake() {
+      return KEYS.handbrake.some((k) => keys.has(k));
+    },
+    lockPointer() {
+      if (document.pointerLockElement !== canvas) {
+        try { canvas.requestPointerLock(); } catch (e) { /* headless: ignore */ }
+      }
+    },
+    unlockPointer() {
+      if (document.pointerLockElement) document.exitPointerLock();
+    },
+    endFrame() {
+      input.mouseDX = 0;
+      input.mouseDY = 0;
+      input.jumpQueued = false;
+      input.enterQueued = false;
+      input.punchQueued = false;
+      input.pauseQueued = false;
+      input.muteQueued = false;
+      input.shootPressed = false;
     },
   };
+
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') e.preventDefault();
+    if (e.repeat) return;
+    keys.add(e.code);
+    if (KEYS.jump.includes(e.code)) input.jumpQueued = true;
+    if (KEYS.enterCar.includes(e.code)) input.enterQueued = true;
+    if (KEYS.punch.includes(e.code)) input.punchQueued = true;
+    if (KEYS.pause.includes(e.code)) input.pauseQueued = true;
+    if (KEYS.mute.includes(e.code)) input.muteQueued = true;
+  });
+  window.addEventListener('keyup', (e) => keys.delete(e.code));
+  window.addEventListener('blur', () => keys.clear());
+  document.addEventListener('pointerlockchange', () => {
+    input.pointerLocked = document.pointerLockElement === canvas;
+  });
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.button === 0) {
+      input.mouseDown = true;
+      input.shootPressed = true;
+      input.lockPointer();
+    }
+  });
+  window.addEventListener('mouseup', (e) => {
+    if (e.button === 0) input.mouseDown = false;
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (input.pointerLocked) {
+      input.mouseDX += e.movementX || 0;
+      input.mouseDY += e.movementY || 0;
+    }
+  });
+  return input;
 }
