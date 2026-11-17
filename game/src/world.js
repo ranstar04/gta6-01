@@ -1,124 +1,121 @@
-// The game's rules and state, with no drawing and no browser in it: the player's paddle, the
-// pool of falling blocks and coins, spawning, collisions, score, lives and level. step() advances
-// one fixed step and returns what happened as bit flags, so the caller can react without the
-// world knowing about screens or sound. Nothing here allocates after createWorld returns.
-import { BLOCK, COIN, FIELD, LEVEL, LIVES, PLAYER, POOL_SIZE } from './config.js';
+// World queries over the road graph: nearest road point, random road spawn,
+// sidewalk waypoints. Pure geometry — no three.js, no DOM.
+import { WORLD } from './config.js';
+import { clamp, dist2D } from './random.js';
 
-export const KIND_BLOCK = 0;
-export const KIND_COIN = 1;
-
-export const EVENT_HIT = 1;
-export const EVENT_COIN = 2;
-export const EVENT_OVER = 4;
-
-function overlaps(a, b) {
-  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
-}
-
-export function createWorld(random) {
-  const player = { x: 0, y: FIELD.groundY - PLAYER.height, width: PLAYER.width, height: PLAYER.height, invulnerable: 0 };
-  const items = [];
-  for (let index = 0; index < POOL_SIZE; index += 1) {
-    items.push({ active: false, kind: KIND_BLOCK, x: 0, y: 0, width: 0, height: 0, speed: 0 });
+export function createWorld(city) {
+  // Road segments: each avenue is a vertical segment, each street horizontal.
+  const segments = [];
+  for (const x of WORLD.avenues) {
+    segments.push({ x1: x, z1: -WORLD.bound, x2: x, z2: WORLD.bound, vertical: true });
   }
-  const state = { player, items, score: 0, lives: LIVES, level: 1, elapsed: 0, blockTimer: 0, coinTimer: 0 };
-
-  function reset() {
-    player.x = (FIELD.width - player.width) / 2;
-    player.invulnerable = 0;
-    for (const item of items) item.active = false;
-    state.score = 0;
-    state.lives = LIVES;
-    state.level = 1;
-    state.elapsed = 0;
-    state.blockTimer = BLOCK.interval;
-    state.coinTimer = COIN.interval;
+  for (const z of WORLD.streets) {
+    segments.push({ x1: -WORLD.bound, z1: z, x2: WORLD.bound, z2: z, vertical: false });
   }
 
-  function freeItem() {
-    for (let index = 0; index < items.length; index += 1) if (!items[index].active) return items[index];
-    return null;
-  }
-
-  function spawnBlock() {
-    const item = freeItem();
-    if (item === null) return;
-    item.active = true;
-    item.kind = KIND_BLOCK;
-    item.width = BLOCK.minWidth + random() * (BLOCK.maxWidth - BLOCK.minWidth);
-    item.height = BLOCK.height;
-    item.x = random() * (FIELD.width - item.width);
-    item.y = -item.height;
-    item.speed = BLOCK.speed + BLOCK.speedPerLevel * (state.level - 1) + random() * BLOCK.speedJitter;
-  }
-
-  function spawnCoin() {
-    const item = freeItem();
-    if (item === null) return;
-    item.active = true;
-    item.kind = KIND_COIN;
-    item.width = COIN.size;
-    item.height = COIN.size;
-    item.x = random() * (FIELD.width - item.width);
-    item.y = -item.height;
-    item.speed = COIN.speed + COIN.speedPerLevel * (state.level - 1);
-  }
-
-  function blockInterval() {
-    return Math.max(BLOCK.minInterval, BLOCK.interval * BLOCK.intervalScale ** (state.level - 1));
-  }
-
-  /**
-   * One fixed step. `direction` is -1, 0 or 1 (left, still, right). With `harmless` set (the title
-   * screen's backdrop) things fall but nothing touches the player and nothing scores.
-   */
-  function step(dt, direction, harmless) {
-    let events = 0;
-    state.elapsed += dt;
-    state.level = Math.min(LEVEL.max, 1 + Math.floor(state.elapsed / LEVEL.seconds));
-
-    player.x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * dt));
-    if (player.invulnerable > 0) player.invulnerable = Math.max(0, player.invulnerable - dt);
-
-    state.blockTimer -= dt;
-    if (state.blockTimer <= 0) {
-      spawnBlock();
-      state.blockTimer += blockInterval();
-    }
-    state.coinTimer -= dt;
-    if (state.coinTimer <= 0) {
-      spawnCoin();
-      state.coinTimer += COIN.interval + random() * COIN.intervalJitter;
-    }
-
-    for (let index = 0; index < items.length; index += 1) {
-      const item = items[index];
-      if (!item.active) continue;
-      item.y += item.speed * dt;
-      if (item.y > FIELD.groundY) {
-        item.active = false;
-        if (item.kind === KIND_BLOCK && !harmless) state.score += BLOCK.dodgePoints;
-        continue;
+  function nearestRoadPoint(x, z) {
+    let best = null;
+    let bestD = Infinity;
+    for (const s of segments) {
+      let px;
+      let pz;
+      let d;
+      if (s.vertical) {
+        pz = clamp(z, s.z1, s.z2);
+        px = s.x1;
+        d = Math.abs(x - s.x1);
+      } else {
+        px = clamp(x, s.x1, s.x2);
+        pz = s.z1;
+        d = Math.abs(z - s.z1);
       }
-      if (harmless || !overlaps(item, player)) continue;
-      if (item.kind === KIND_COIN) {
-        item.active = false;
-        state.score += COIN.points;
-        events |= EVENT_COIN;
-      } else if (player.invulnerable === 0) {
-        item.active = false;
-        state.lives -= 1;
-        player.invulnerable = PLAYER.invulnerable;
-        events |= EVENT_HIT;
-        if (state.lives === 0) {
-          events |= EVENT_OVER;
-          break;
+      if (d < bestD) {
+        bestD = d;
+        best = { x: px, z: pz, vertical: s.vertical };
+      }
+    }
+    return best;
+  }
+
+  function onRoad(x, z) {
+    return nearestRoadPoint(x, z) && dist2D(x, z, nearestRoadPoint(x, z).x, nearestRoadPoint(x, z).z) <= WORLD.roadHalf + 0.5;
+  }
+
+  function randomRoadPoint(rng) {
+    const s = segments[Math.floor(rng() * segments.length)];
+    const t = rng();
+    return {
+      x: s.x1 + (s.x2 - s.x1) * t,
+      z: s.z1 + (s.z2 - s.z1) * t,
+      vertical: s.vertical,
+    };
+  }
+
+  // A rectangular loop around one city block, for traffic circuits.
+  function blockLoop(rng) {
+    const ai = 1 + Math.floor(rng() * (WORLD.avenues.length - 2));
+    const si = 1 + Math.floor(rng() * (WORLD.streets.length - 2));
+    const x0 = WORLD.avenues[ai - 1];
+    const x1 = WORLD.avenues[ai];
+    const z0 = WORLD.streets[si - 1];
+    const z1 = WORLD.streets[si];
+    const dir = rng() < 0.5 ? 1 : -1;
+    const pts = [
+      { x: x0, z: z0 }, { x: x1, z: z0 }, { x: x1, z: z1 }, { x: x0, z: z1 },
+    ];
+    if (dir < 0) pts.reverse();
+    return pts;
+  }
+
+  // Sidewalk waypoint: a point just off a road, inside a block edge.
+  function sidewalkPoint(rng) {
+    const p = randomRoadPoint(rng);
+    const off = WORLD.roadHalf + 2 + rng() * 3;
+    const side = rng() < 0.5 ? -1 : 1;
+    if (p.vertical) return { x: p.x + off * side, z: p.z };
+    return { x: p.x, z: p.z + off * side };
+  }
+
+  // Collision: circle (x, z, radius) against building AABBs and the world edge.
+  function collide(x, z, radius) {
+    let cx = x;
+    let cz = z;
+    for (const b of city.colliders) {
+      const nx = clamp(cx, b.minX, b.maxX);
+      const nz = clamp(cz, b.minZ, b.maxZ);
+      const dx = cx - nx;
+      const dz = cz - nz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 < radius * radius) {
+        if (d2 > 0.0001) {
+          const d = Math.sqrt(d2);
+          cx = nx + (dx / d) * radius;
+          cz = nz + (dz / d) * radius;
+        } else {
+          // Centre inside the box: push out along the smallest penetration axis.
+          const pl = cx - b.minX;
+          const pr = b.maxX - cx;
+          const pt = cz - b.minZ;
+          const pb = b.maxZ - cz;
+          const m = Math.min(pl, pr, pt, pb);
+          if (m === pl) cx = b.minX - radius;
+          else if (m === pr) cx = b.maxX + radius;
+          else if (m === pt) cz = b.minZ - radius;
+          else cz = b.maxZ + radius;
         }
       }
     }
-    return events;
+    cx = clamp(cx, -WORLD.bound, WORLD.bound);
+    cz = clamp(cz, -WORLD.bound, WORLD.bound);
+    return { x: cx, z: cz };
   }
 
-  reset();
-  return { state, reset, step };
+  function insideBuilding(x, z) {
+    for (const b of city.colliders) {
+      if (x > b.minX && x < b.maxX && z > b.minZ && z < b.maxZ) return true;
+    }
+    return false;
+  }
+
+  return { segments, nearestRoadPoint, onRoad, randomRoadPoint, blockLoop, sidewalkPoint, collide, insideBuilding };
 }

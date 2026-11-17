@@ -1,141 +1,142 @@
-// Drawing only: the world's state and the current screen in, pixels out. The 1280x720 playfield
-// is scaled to fit the window and centred, the margin filled with the backdrop colour. Flat
-// rectangles and circles, canvas text for the HUD and the panels. Text that holds a number is
-// rebuilt only when the number changes, so a frame allocates nothing.
-import { FIELD, FONT, LIVES, PALETTE } from './config.js';
-import { KIND_COIN } from './world.js';
+// three.js scene, lighting, sky, fog, ocean. Owns the renderer and camera; the game
+// logic lives in the other files and only asks this one to render and to move the camera.
+import * as THREE from 'three';
+import { PALETTE, WORLD } from './config.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
 export const SCREEN_PAUSED = 'paused';
-export const SCREEN_OVER = 'over';
-
-/** The panel's width; its height grows with its lines: room for the title, the lines and the prompt. */
-const PANEL = { width: 600, top: 134, line: 34, bottom: 70 };
-const LIFE_SIZE = 20;
-const LIFE_GAP = 8;
-
-function cachedLabel(prefix) {
-  let value = -1;
-  let text = '';
-  return function label(next) {
-    if (next !== value) {
-      value = next;
-      text = prefix + next;
-    }
-    return text;
-  };
-}
+export const SCREEN_BUSTED = 'busted';
+export const SCREEN_WASTED = 'wasted';
+export const SCREEN_MISSION = 'mission';
+export const SCREEN_KINGPIN = 'kingpin';
 
 export function createRenderer(canvas) {
-  const context = canvas.getContext('2d');
-  const view = { scale: 1, x: 0, y: 0 };
-  const scoreLabel = cachedLabel('Score ');
-  const levelLabel = cachedLabel('Level ');
-  const finalLabel = cachedLabel('Score ');
-  const bestLabel = cachedLabel('Best ');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.05;
+
+  const scene = new THREE.Scene();
+  scene.fog = new THREE.Fog(PALETTE.fog, 90, 420);
+
+  const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.1, 900);
+  camera.position.set(20, 12, 30);
+
+  // Late-afternoon sun, warm and low from the west so shadows stretch east.
+  const sun = new THREE.DirectionalLight(PALETTE.sun, 2.6);
+  sun.position.set(-120, 90, 40);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.camera.left = -180;
+  sun.shadow.camera.right = 180;
+  sun.shadow.camera.top = 180;
+  sun.shadow.camera.bottom = -180;
+  sun.shadow.camera.far = 500;
+  sun.shadow.bias = -0.0004;
+  scene.add(sun);
+  scene.add(new THREE.HemisphereLight(0xbfd9ff, 0x5a5a68, 0.9));
+
+  // Procedural sky dome: gradient shader + sun disc + drifting cloud billboards.
+  const skyGeo = new THREE.SphereGeometry(700, 24, 16);
+  const skyMat = new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+    uniforms: {
+      top: { value: new THREE.Color(PALETTE.skyTop) },
+      bottom: { value: new THREE.Color(PALETTE.skyBottom) },
+      sunDir: { value: new THREE.Vector3(-0.75, 0.42, 0.25).normalize() },
+    },
+    vertexShader: `
+      varying vec3 vDir;
+      void main() { vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `
+      varying vec3 vDir;
+      uniform vec3 top; uniform vec3 bottom; uniform vec3 sunDir;
+      void main() {
+        float h = clamp(vDir.y, 0.0, 1.0);
+        vec3 col = mix(bottom, top, pow(h, 0.65));
+        float s = max(dot(normalize(vDir), sunDir), 0.0);
+        col += vec3(1.0, 0.85, 0.55) * pow(s, 220.0) * 1.4;
+        col += vec3(1.0, 0.7, 0.35) * pow(s, 8.0) * 0.15;
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+  const sky = new THREE.Mesh(skyGeo, skyMat);
+  scene.add(sky);
+
+  // Clouds: soft white flattened spheres drifting slowly.
+  const cloudMat = new THREE.MeshBasicMaterial({ color: 0xfff6e8, transparent: true, opacity: 0.85, fog: false });
+  const clouds = [];
+  for (let i = 0; i < 14; i++) {
+    const g = new THREE.Group();
+    const puffs = 3 + (i % 3);
+    for (let j = 0; j < puffs; j++) {
+      const s = new THREE.Mesh(new THREE.SphereGeometry(6 + (j % 3) * 3, 8, 6), cloudMat);
+      s.position.set(j * 7 - puffs * 3, (j % 2) * 1.5, (j % 3) * 3 - 3);
+      s.scale.y = 0.45;
+      g.add(s);
+    }
+    g.position.set(-260 + i * 40 + (i % 3) * 13, 95 + (i % 5) * 9, -320 + (i * 53) % 640);
+    scene.add(g);
+    clouds.push(g);
+  }
+
+  // Ocean: animated plane west of the beach, vertex waves in the update loop.
+  const oceanGeo = new THREE.PlaneGeometry(260, 700, 24, 48);
+  oceanGeo.rotateX(-Math.PI / 2);
+  const oceanMat = new THREE.MeshStandardMaterial({ color: PALETTE.ocean, roughness: 0.35, metalness: 0.1 });
+  const ocean = new THREE.Mesh(oceanGeo, oceanMat);
+  ocean.position.set(WORLD.oceanX - 110, -0.4, 0);
+  scene.add(ocean);
+  const oceanBase = oceanGeo.attributes.position.array.slice();
+
+  let shake = 0;
 
   function resize() {
-    const ratio = window.devicePixelRatio || 1;
-    const width = Math.round(window.innerWidth * ratio);
-    const height = Math.round(window.innerHeight * ratio);
-    canvas.width = width;
-    canvas.height = height;
-    view.scale = Math.min(width / FIELD.width, height / FIELD.height);
-    view.x = (width - FIELD.width * view.scale) / 2;
-    view.y = (height - FIELD.height * view.scale) / 2;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
   }
-
-  const fonts = new Map();
-  function text(value, x, y, size, color, align) {
-    if (!fonts.has(size)) fonts.set(size, `${size}px ${FONT}`);
-    context.font = fonts.get(size);
-    context.fillStyle = color;
-    context.textAlign = align;
-    context.fillText(value, x, y);
-  }
-
-  function drawField(state) {
-    context.fillStyle = PALETTE.sky;
-    context.fillRect(0, 0, FIELD.width, FIELD.height);
-    context.fillStyle = PALETTE.ground;
-    context.fillRect(0, FIELD.groundY, FIELD.width, FIELD.height - FIELD.groundY);
-
-    const items = state.items;
-    for (let index = 0; index < items.length; index += 1) {
-      const item = items[index];
-      if (!item.active) continue;
-      if (item.kind === KIND_COIN) {
-        context.fillStyle = PALETTE.coin;
-        context.beginPath();
-        context.arc(item.x + item.width / 2, item.y + item.height / 2, item.width / 2, 0, Math.PI * 2);
-        context.fill();
-      } else {
-        context.fillStyle = PALETTE.block;
-        context.fillRect(item.x, item.y, item.width, item.height);
-      }
-    }
-
-    const player = state.player;
-    // Blink while invulnerable after a hit: hidden on every other tenth of a second.
-    if (player.invulnerable === 0 || Math.floor(player.invulnerable * 10) % 2 === 1) {
-      context.fillStyle = PALETTE.player;
-      context.fillRect(player.x, player.y, player.width, player.height);
-    }
-  }
-
-  function drawHud(state) {
-    context.textBaseline = 'top';
-    text(scoreLabel(state.score), 24, 20, 28, PALETTE.text, 'left');
-    text(levelLabel(state.level), FIELD.width / 2, 20, 28, PALETTE.text, 'center');
-    const firstLife = FIELD.width - 24 - LIVES * (LIFE_SIZE + LIFE_GAP) + LIFE_GAP;
-    text('Lives', firstLife - 12, 20, 28, PALETTE.text, 'right');
-    for (let life = 0; life < LIVES; life += 1) {
-      context.fillStyle = life < state.lives ? PALETTE.player : PALETTE.ground;
-      context.fillRect(firstLife + life * (LIFE_SIZE + LIFE_GAP), 24, LIFE_SIZE, LIFE_SIZE);
-    }
-  }
-
-  function drawPanel(title, lines, prompt) {
-    const height = PANEL.top + lines.length * PANEL.line + PANEL.bottom;
-    const x = (FIELD.width - PANEL.width) / 2;
-    const y = (FIELD.height - height) / 2;
-    context.fillStyle = PALETTE.panel;
-    context.fillRect(x, y, PANEL.width, height);
-    context.textBaseline = 'alphabetic';
-    text(title, FIELD.width / 2, y + 78, 48, PALETTE.text, 'center');
-    for (let index = 0; index < lines.length; index += 1) {
-      text(lines[index], FIELD.width / 2, y + PANEL.top + index * PANEL.line, 22, PALETTE.muted, 'center');
-    }
-    text(prompt, FIELD.width / 2, y + height - 40, 24, PALETTE.coin, 'center');
-  }
-
-  const TITLE_LINES = ['Dodge the red blocks. Catch the gold coins.', 'Move with ← → or A D.  Pause with P.', ''];
-  const PAUSED_LINES = ['The blocks will wait for you.'];
-  const OVER_LINES = ['', ''];
-
-  /** Paint one frame: the field, then the HUD or a panel for the screen the game is on. */
-  function draw(state, screen, best) {
-    context.setTransform(1, 0, 0, 1, 0, 0);
-    context.fillStyle = PALETTE.backdrop;
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.setTransform(view.scale, 0, 0, view.scale, view.x, view.y);
-    drawField(state);
-    if (screen === SCREEN_TITLE) {
-      TITLE_LINES[2] = bestLabel(best);
-      drawPanel('Block Dodger', TITLE_LINES, 'Press Space or click to start');
-      return;
-    }
-    drawHud(state);
-    if (screen === SCREEN_PAUSED) drawPanel('Paused', PAUSED_LINES, 'Press P to resume');
-    else if (screen === SCREEN_OVER) {
-      OVER_LINES[0] = finalLabel(state.score);
-      OVER_LINES[1] = bestLabel(best);
-      drawPanel('Game over', OVER_LINES, 'Press Space or click to play again');
-    }
-  }
-
-  resize();
   window.addEventListener('resize', resize);
-  return { draw };
+
+  return {
+    renderer,
+    scene,
+    camera,
+    addShake(amount) { shake = Math.min(1.2, shake + amount); },
+    update(dt, time) {
+      // Ocean waves.
+      const pos = oceanGeo.attributes.position;
+      for (let i = 0; i < pos.count; i++) {
+        const bx = oceanBase[i * 3];
+        const bz = oceanBase[i * 3 + 2];
+        pos.array[i * 3 + 1] = Math.sin(bx * 0.08 + time * 1.1) * 0.35 + Math.cos(bz * 0.05 + time * 0.7) * 0.3;
+      }
+      pos.needsUpdate = true;
+      oceanGeo.computeVertexNormals();
+      for (const c of clouds) {
+        c.position.x += dt * 1.2;
+        if (c.position.x > 320) c.position.x = -320;
+      }
+      // Camera shake decays.
+      if (shake > 0.001) {
+        camera.position.x += (Math.random() - 0.5) * shake * 0.25;
+        camera.position.y += (Math.random() - 0.5) * shake * 0.25;
+        shake *= Math.pow(0.02, dt);
+      } else {
+        shake = 0;
+      }
+    },
+    render() {
+      renderer.render(scene, camera);
+    },
+  };
 }
