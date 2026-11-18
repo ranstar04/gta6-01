@@ -1,79 +1,180 @@
-// The screenshot scenes behind ?shot=start|play|end. Each one plays the real rules forward from a
-// fresh world for a fixed number of steps, steered by a simple autopilot (look ahead each way the
-// paddle could move, keep clear of blocks, chase the lowest coin when that is safe), so the frame
-// is what a short game really looks like and the same seed always gives the same frame.
-import { FIELD, PLAYER, STEP } from './config.js';
-import { EVENT_OVER, KIND_BLOCK } from './world.js';
-import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
+// SOLMARA's staged screenshots: each scene plays the real rules forward from
+// a fresh seeded world, steered by a small autopilot, so the frame is what a
+// short game really looks like. Chase drives straight (a sine weave would hold
+// the wheel one way and run the car into a wall); the mission stages on the
+// open beach approach to the pier, with clear space behind the player so no
+// building face can fill the frame; the chase camera sits ahead of the car
+// looking back, so the pursuing cruisers stay in view.
 
-const START_SECONDS = 5;
-const PLAY_SECONDS = 26;
-const END_LIMIT_SECONDS = 600;
-/**
- * How far ahead, in seconds, the autopilot checks each way it could move: the play scene's pilot
- * looks well ahead and keeps all its lives; the end scene's looks only a moment ahead, so it is
- * caught out once the blocks speed up, as a hurried player is.
- */
-const HORIZON_PLAY = 0.7;
-const HORIZON_END = 0.25;
-const SAMPLE = 1 / 30;
-const DIRECTIONS = [0, -1, 1];
-/** Extra room, each side, it keeps between the paddle and a block. */
-const MARGIN = 10;
+import { SHOT } from './config.js';
+import { createCar } from './vehicles.js';
 
-/** Seconds until moving in `direction` (-1, 0, 1) runs the paddle into a block; Infinity when it never does. */
-function timeToHit(state, direction, horizon) {
-  const player = state.player;
-  for (let t = SAMPLE; t <= horizon; t += SAMPLE) {
-    const x = Math.min(FIELD.width - player.width, Math.max(0, player.x + direction * PLAYER.speed * t));
-    for (let index = 0; index < state.items.length; index += 1) {
-      const item = state.items[index];
-      if (!item.active || item.kind !== KIND_BLOCK) continue;
-      const y = item.y + item.speed * t;
-      if (y + item.height > player.y && y < player.y + player.height && item.x < x + player.width + MARGIN && item.x + item.width > x - MARGIN) return t;
+/** The staged shot's state: how many frames to run, and the per-frame driver. */
+export function stageShot(name, G) {
+  const scene = G.stage.scene;
+  const world = G.world;
+
+  function clearShotActors() {
+    // Park the player on foot and clear any previous shot's cruisers/enemies.
+    G.setDriving(null);
+    G.combat.clearEnemies();
+    for (const car of [...G.police.state.cruisers]) {
+      const i = G.cars.indexOf(car);
+      if (i >= 0) G.cars.splice(i, 1);
+      scene.remove(car.mesh);
     }
+    G.police.state.cruisers.length = 0;
+    G.police.state.stars = 0;
   }
-  return Infinity;
-}
 
-/** Of the safe ways to move, the one toward the lowest coin (or the centre); else the one that is hit last. */
-function autopilot(state, horizon) {
-  const player = state.player;
-  let coin = null;
-  for (let index = 0; index < state.items.length; index += 1) {
-    const item = state.items[index];
-    if (item.active && item.kind !== KIND_BLOCK && (coin === null || item.y > coin.y)) coin = item;
-  }
-  const target = coin === null ? FIELD.width / 2 : coin.x + coin.width / 2;
-  const centre = player.x + player.width / 2;
-  const wanted = target > centre + 8 ? 1 : target < centre - 8 ? -1 : 0;
-  let best = wanted;
-  let bestTime = timeToHit(state, wanted, horizon);
-  for (let index = 0; index < DIRECTIONS.length && bestTime !== Infinity; index += 1) {
-    const time = timeToHit(state, DIRECTIONS[index], horizon);
-    if (time > bestTime) {
-      bestTime = time;
-      best = DIRECTIONS[index];
+  if (name === 'chase') {
+    clearShotActors();
+    const vesper = G.parked.vesper;
+    vesper.pos.set(0, 0, 90);
+    vesper.yaw = Math.PI;
+    vesper.speed = 26;
+    vesper.mesh.rotation.y = Math.PI;
+    G.setDriving(vesper);
+    G.police.state.stars = 3;
+    G.missions.aimAt({ x: 0, z: -160 }, 'Escape the police — lose the tail!');
+    // Keep the avenue clear: move any traffic car on the hero's path to the
+    // east avenue, and pull walkers off the road, so nothing blocks the run
+    // or gets hit by it (a hit pedestrian would add a fourth star).
+    for (const car of G.traffic.cars) {
+      if (Math.abs(car.pos.x) < 12 && car.pos.z > 10 && car.pos.z < 100) {
+        car.pos.set(80, 0, car.pos.z);
+      }
     }
+    for (const ped of G.peds.peds) {
+      if (Math.abs(ped.pos.x) < 10 && ped.pos.z < 110) {
+        G.peds.moveTo(ped, ped.pos.x < 0 ? -14 : 14, 120 + Math.abs(ped.pos.x), 12, 150);
+      }
+    }
+    const cruisers = [];
+    for (const [x, z] of [[0, 118], [5, 136]]) {
+      const car = createCar(scene, 'cruiser', x, z, Math.PI, { driver: 'police', id: 300 + cruisers.length });
+      car.speed = 24;
+      cruisers.push(car);
+      G.cars.push(car);
+      G.police.state.cruisers.push(car);
+    }
+    return {
+      frames: 110,
+      camera: 'chaseFront',
+      update(dt) {
+        // Straight down the avenue: no weave, no wall.
+        const drive = { throttle: 1, steer: 0, handbrake: false };
+        G.driveCar(vesper, dt, drive);
+        for (const car of cruisers) {
+          // Hold formation ~28 m behind the hero: steer at the point behind
+          // the car, not at the car itself, and ease off before contact, so
+          // the cruisers never ram the hero to a standstill.
+          const fx = Math.sin(vesper.yaw);
+          const fz = Math.cos(vesper.yaw);
+          const tx = vesper.pos.x - fx * 28;
+          const tz = vesper.pos.z - fz * 28;
+          const dx = tx - car.pos.x;
+          const dz = tz - car.pos.z;
+          const dist = Math.hypot(dx, dz);
+          const wantYaw = Math.atan2(dx, dz);
+          let diff = wantYaw - car.yaw;
+          while (diff > Math.PI) diff -= Math.PI * 2;
+          while (diff < -Math.PI) diff += Math.PI * 2;
+          const throttle = dist > 34 ? 1 : dist > 24 ? 0.6 : 0.2;
+          G.driveCar(car, dt, { throttle, steer: Math.max(-1, Math.min(1, diff * 1.8)), handbrake: false });
+        }
+        G.traffic.step(dt, vesper, G.cars);
+        G.peds.step(dt, G.time, G.cars);
+        G.effects.step(dt);
+      },
+    };
   }
-  return best;
-}
 
-/**
- * Set `world` to the named scene (start, play or end; any other name is start) and return the
- * screen to draw over it and the best score to show.
- */
-export function stageShot(name, world) {
-  world.reset();
-  if (name !== 'play' && name !== 'end') {
-    for (let index = 0; index < START_SECONDS / STEP; index += 1) world.step(STEP, 0, true);
-    return { screen: SCREEN_TITLE, best: 0 };
+  if (name === 'street') {
+    clearShotActors();
+    const p = G.player.state;
+    p.pos.set(8, 0, 150);
+    p.camYaw = 0;
+    p.yaw = Math.PI;
+    G.missions.aimAt({ x: -40, z: 40 }, 'Homecoming: reach the Gull & Anchor diner.');
+    // Pull a few walkers onto this sidewalk so the street reads busy.
+    for (let i = 0; i < 6 && i < G.peds.peds.length; i += 1) {
+      const ped = G.peds.peds[i];
+      G.peds.moveTo(ped, 4 + (i % 3) * 4, 132 + Math.floor(i / 3) * 10, 6, 120);
+    }
+    return {
+      frames: 80,
+      camera: 'follow',
+      cam: { distance: SHOT.followDist, height: SHOT.followHeight },
+      update(dt) {
+        G.walkPlayer(dt, { f: 1, s: 0, sprint: false, jumpHeld: false }, { x: 0, y: 0 });
+        G.traffic.step(dt, null, G.cars);
+        G.peds.step(dt, G.time, G.cars);
+        G.effects.step(dt);
+      },
+    };
   }
-  const limit = name === 'end' ? END_LIMIT_SECONDS : PLAY_SECONDS;
-  const horizon = name === 'end' ? HORIZON_END : HORIZON_PLAY;
-  for (let index = 0; index < limit / STEP; index += 1) {
-    if (world.step(STEP, autopilot(world.state, horizon), false) & EVENT_OVER) break;
+
+  if (name === 'mission') {
+    clearShotActors();
+    const p = G.player.state;
+    // Closer to the pier, on the open beach approach: the enemies sit
+    // 15–25 m ahead (big enough to read) with the warehouse behind them,
+    // and the player starts at full health so the frame does not end with
+    // a nearly-dead hero.
+    p.pos.set(-192, 0, 84);
+    p.camYaw = 0;
+    p.yaw = Math.PI;
+    p.health = 100;
+    G.missions.aimAt({ x: -176, z: 56 }, 'Storm the Pier: clear the Kross enforcers (0/6).');
+    const spots = [[-200, 72], [-194, 70], [-188, 74], [-198, 78], [-190, 76], [-184, 70]];
+    for (const [x, z] of spots) G.combat.spawnEnemy(x, z);
+    G.combat.spawnPickup('health', -196, 84);
+    let frame = 0;
+    return {
+      frames: 120,
+      camera: 'follow',
+      cam: { distance: SHOT.followDist, height: SHOT.followHeight },
+      update(dt) {
+        frame += 1;
+        // A scripted shot every ~20 frames, timed so the last one lands two
+        // frames before the screenshot: muzzle flash and tracer still fresh.
+        if (frame % 20 === 18) {
+          const res = G.combat.shoot(G.stage.camera, G.time,
+            (enemy, point) => {
+              G.effects.tracer(p.pos.x, 1.4, p.pos.z - 1, point.x, point.y, point.z);
+              G.effects.impact(point.x, point.y, point.z);
+              G.effects.muzzle(p.pos.x, 1.4, p.pos.z - 1);
+              G.audio.gunshot();
+            },
+            (point) => {
+              G.effects.tracer(p.pos.x, 1.4, p.pos.z - 1, point.x, point.y, point.z);
+              G.effects.impact(point.x, point.y, point.z);
+              G.effects.muzzle(p.pos.x, 1.4, p.pos.z - 1);
+              G.audio.gunshot();
+            },
+            () => {});
+          if (res === 'empty') G.combat.reload();
+        }
+        G.combat.step(dt, G.time, p.pos, G.player, G.effects);
+        G.traffic.step(dt, null, G.cars);
+        G.peds.step(dt, G.time, G.cars);
+        G.effects.step(dt);
+      },
+    };
   }
-  const over = world.state.lives === 0;
-  return { screen: over ? SCREEN_OVER : SCREEN_PLAY, best: world.state.score };
+
+  // title (and any unknown name): the live city vista behind the menu.
+  clearShotActors();
+  const p = G.player.state;
+  p.pos.set(-52, 0, 52);
+  return {
+    frames: 150,
+    camera: 'orbit',
+    update(dt) {
+      G.traffic.step(dt, null, G.cars);
+      G.peds.step(dt, G.time, G.cars);
+      G.effects.step(dt);
+    },
+  };
 }
