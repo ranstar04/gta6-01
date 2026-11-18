@@ -3,17 +3,126 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Block Dodger</title>
+<title>SOLMARA — Open-World Crime Game</title>
 <style>
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #11141b; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
   #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-  /* Read aloud, never shown: the status line screen readers announce. */
   #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #vignette { position: fixed; inset: 0; pointer-events: none; background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.35) 100%); z-index: 3; }
+  #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; display: none; color: #eef1f5; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+  .hud-box { position: absolute; background: rgba(10, 14, 20, 0.55); border-radius: 8px; padding: 8px 12px; }
+  #topleft { top: 12px; left: 12px; }
+  #health-bar { width: 180px; height: 12px; background: rgba(255,255,255,0.18); border-radius: 6px; overflow: hidden; }
+  #health-fill { height: 100%; width: 100%; background: #35d05a; }
+  #health-text { font-size: 12px; margin-top: 2px; }
+  #money { font-size: 22px; font-weight: 700; color: #7dff9a; margin-top: 4px; }
+  #stars { font-size: 26px; letter-spacing: 2px; margin-top: 2px; }
+  #topcenter { top: 12px; left: 50%; transform: translateX(-50%); text-align: center; max-width: 560px; }
+  #objective { font-size: 16px; font-weight: 600; }
+  #topright { top: 12px; right: 12px; text-align: right; }
+  #clock { font-size: 20px; font-weight: 700; }
+  #district { font-size: 13px; color: #ffd98a; }
+  #minimap { margin-top: 6px; border: 2px solid rgba(255,255,255,0.35); border-radius: 6px; background: rgba(16,20,28,0.78); }
+  #ammo { bottom: 16px; left: 12px; font-size: 17px; font-weight: 700; }
+  #speed { bottom: 16px; right: 12px; font-size: 26px; font-weight: 800; display: none; }
+  #feed { position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%); width: 480px; text-align: center; font-size: 14px; }
+  .feed-item { background: rgba(10,14,20,0.6); border-radius: 6px; padding: 4px 10px; margin-top: 4px; }
+  .panel { position: fixed; inset: 0; z-index: 10; display: none; text-align: center; color: #eef1f5; }
+  .panel-inner { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); background: rgba(10, 14, 20, 0.72); border: 1px solid rgba(255,255,255,0.18); border-radius: 14px; padding: 28px 40px; max-width: 640px; }
+  .panel h1 { font-size: 64px; margin: 0; letter-spacing: 8px; color: #f2c94c; text-shadow: 0 3px 18px rgba(0,0,0,0.7); }
+  .panel h2 { font-size: 30px; margin: 0 0 10px 0; color: #f2c94c; }
+  .panel p { font-size: 15px; line-height: 1.5; color: #d5dae2; }
+  .panel button { display: block; margin: 10px auto; padding: 10px 26px; font-size: 16px; font-weight: 700; color: #10141b; background: #f2c94c; border: none; border-radius: 8px; cursor: pointer; min-width: 260px; }
+  .panel button:hover { background: #ffd94d; }
+  .panel button.ghost { background: rgba(255,255,255,0.14); color: #eef1f5; }
+  #help-panel, #missions-panel { text-align: left; font-size: 14px; line-height: 1.6; max-height: 300px; overflow-y: auto; }
+  #title-screen { background: linear-gradient(to bottom, rgba(10,14,20,0.15), rgba(10,14,20,0.55)); }
 </style>
+<script type="importmap">{"imports":{"three":"./vendor/three/three.module.min.js"}}</script>
 </head>
 <body>
-<canvas id="game" aria-label="Block Dodger: move the paddle left and right to dodge falling blocks and catch coins"></canvas>
+<canvas id="game" aria-label="SOLMARA: open-world crime game. Drive, steal cars, run missions, lose the cops."></canvas>
+<div id="vignette"></div>
 <p id="status" role="status" aria-live="polite"></p>
+
+<div id="hud">
+  <div class="hud-box" id="topleft">
+    <div id="health-bar"><div id="health-fill"></div></div>
+    <div id="health-text">100</div>
+    <div id="money">$0</div>
+    <div id="stars">☆☆☆☆☆</div>
+  </div>
+  <div class="hud-box" id="topcenter"><div id="objective"></div></div>
+  <div class="hud-box" id="topright">
+    <div id="clock">16:30</div>
+    <div id="district">Downtown</div>
+    <canvas id="minimap" width="168" height="168"></canvas>
+  </div>
+  <div class="hud-box" id="ammo"></div>
+  <div class="hud-box" id="speed"></div>
+  <div id="feed"></div>
+</div>
+
+<div class="panel" id="title-screen">
+  <div class="panel-inner">
+    <h1>SOLMARA</h1>
+    <p>Sun-soaked streets. Fast cars. Six jobs between you and the crown.<br>Rook Vega is back in town — and Mama Izzy is collecting.</p>
+    <button id="continue-btn">Continue</button>
+    <button id="new-btn">New Game</button>
+    <button id="how-btn" class="ghost">How to Play</button>
+    <button id="missions-btn" class="ghost">Missions</button>
+    <div id="help-panel" style="display:none">
+      <p><b>WASD / arrows</b> — walk / drive &nbsp; <b>Shift</b> — sprint &nbsp; <b>Space</b> — jump / handbrake</p>
+      <p><b>Mouse</b> — look (click to lock) &nbsp; <b>Click</b> — shoot &nbsp; <b>F</b> — punch</p>
+      <p><b>E</b> — enter / steal car, pick up fares &nbsp; <b>P / Esc</b> — pause &nbsp; <b>M</b> — mute</p>
+      <p>Steal cars, run the six missions for Mama Izzy, grab taxi fares and the 10 golden shells. Lose the cops at Fresh Coat — a repaint costs $150. Wanted stars decay when nobody can see you.</p>
+    </div>
+    <div id="missions-panel" style="display:none"></div>
+  </div>
+</div>
+
+<div class="panel" id="pause-screen">
+  <div class="panel-inner">
+    <h2>Paused</h2>
+    <p>Solmara waits for no one. Well — except now.</p>
+    <button id="resume-btn">Resume</button>
+    <button id="restart-btn" class="ghost">Restart Mission</button>
+    <button id="save-btn" class="ghost">Save Game</button>
+    <button id="quit-btn" class="ghost">Quit to Title</button>
+  </div>
+</div>
+
+<div class="panel" id="busted-screen">
+  <div class="panel-inner">
+    <h2>BUSTED</h2>
+    <p id="busted-text"></p>
+    <button id="busted-btn">Back to the Streets</button>
+  </div>
+</div>
+
+<div class="panel" id="wasted-screen">
+  <div class="panel-inner">
+    <h2>WASTED</h2>
+    <p id="wasted-text"></p>
+    <button id="wasted-btn">Back to the Streets</button>
+  </div>
+</div>
+
+<div class="panel" id="passed-screen">
+  <div class="panel-inner">
+    <h2>Mission Passed</h2>
+    <button id="passed-btn">Continue</button>
+  </div>
+</div>
+
+<div class="panel" id="kingpin-screen">
+  <div class="panel-inner">
+    <h1 style="font-size:44px">SOLMARA KINGPIN</h1>
+    <p id="kingpin-text"></p>
+    <button id="kingpin-btn">Back to Title</button>
+  </div>
+</div>
+
 <script type="module" src="./src/main.js"></script>
 </body>
 </html>

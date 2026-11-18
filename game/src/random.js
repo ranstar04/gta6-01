@@ -1,6 +1,5 @@
-// A small seeded random number generator (mulberry32): the same seed gives the same game,
-// which is what makes the screenshot scenes repeatable.
-
+// Seeded RNG (mulberry32): the same seed gives the same city, the same traffic,
+// the same screenshot. Pure functions, no allocation after boot.
 export function createRandom(seed) {
   let a = seed | 0;
   return function random() {
@@ -10,3 +9,7 @@ export function createRandom(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+export function range(rng, min, max) { return min + rng() * (max - min); }
+export function pick(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
+export function chance(rng, p) { return rng() < p; }
