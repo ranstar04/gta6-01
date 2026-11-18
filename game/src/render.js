@@ -91,8 +91,11 @@ export function createRenderer(canvas) {
     // placeCamera is exported here — shots.js and the main loop use it.
     placeCamera,
     update(dt) {
-      for (const c of clouds) {
+      for (let i = 0; i < clouds.length; i += 1) {
+        const c = clouds[i];
         c.position.x += dt * 2.2;
+        // Gentle cross-drift so the sky never looks frozen.
+        c.position.z += Math.sin(performance.now() * 0.0001 + i * 1.7) * dt * 0.6;
         if (c.position.x > 620) c.position.x = -620;
       }
     },

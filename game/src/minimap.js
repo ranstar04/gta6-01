@@ -76,6 +76,10 @@ export function createMinimap() {
     ctx.beginPath();
     ctx.moveTo(0, -6); ctx.lineTo(4.5, 5); ctx.lineTo(-4.5, 5); ctx.closePath();
     ctx.fill();
+    // Dark outline so the arrow reads over pale sand and bright roads.
+    ctx.strokeStyle = '#111418';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
     ctx.restore();
     // North indicator.
     ctx.fillStyle = '#fff';

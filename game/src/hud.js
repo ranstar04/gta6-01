@@ -36,6 +36,17 @@ export function createHud() {
     feed,
     show(inGame) { hud.style.display = inGame ? 'block' : 'none'; },
     objective(text) { if (text !== last.objective) { last.objective = text; objectiveEl.textContent = text; } },
+    /** Big centre announcement that fades back to the objective after 3 s. */
+    banner(text) {
+      objectiveEl.textContent = text;
+      objectiveEl.style.fontSize = '22px';
+      objectiveEl.style.color = '#ffd21f';
+      setTimeout(() => {
+        objectiveEl.style.fontSize = '';
+        objectiveEl.style.color = '';
+        objectiveEl.textContent = last.objective;
+      }, 3000);
+    },
     update(dt, G) {
       for (let i = feedItems.length - 1; i >= 0; i -= 1) {
         feedItems[i].ttl -= dt;

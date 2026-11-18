@@ -118,6 +118,7 @@ export function createPolice(scene, rng) {
         if (c.group.userData.lightR) c.group.userData.lightR.material.color.setHex(on ? 0x2a6bff : 0x000055);
       }
       // Foot officers walk at the player; pinning him on foot ~2 s = BUSTED.
+      // They respect building colliders (they used to walk straight through walls).
       for (const cop of cops) {
         const dx = pp.x - cop.pos.x;
         const dz = pp.z - cop.pos.z;
@@ -125,6 +126,19 @@ export function createPolice(scene, rng) {
         if (d > 0.5) {
           cop.pos.x += (dx / d) * cop.speed * dt;
           cop.pos.z += (dz / d) * cop.speed * dt;
+          for (const c of G.city.colliders) {
+            const nx = Math.max(c.minX, Math.min(cop.pos.x, c.maxX));
+            const nz = Math.max(c.minZ, Math.min(cop.pos.z, c.maxZ));
+            let ox = cop.pos.x - nx;
+            let oz = cop.pos.z - nz;
+            const d2 = ox * ox + oz * oz;
+            if (d2 < 0.36) {
+              if (d2 < 1e-6) { ox = 0.6; oz = 0; }
+              const dd = Math.sqrt(ox * ox + oz * oz);
+              cop.pos.x = nx + (ox / dd) * 0.6;
+              cop.pos.z = nz + (oz / dd) * 0.6;
+            }
+          }
           cop.group.position.copy(cop.pos);
           cop.group.rotation.y = Math.atan2(dx, dz);
         }

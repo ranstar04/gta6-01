@@ -27,6 +27,11 @@ export function writeSave(data) {
   } catch (e) { /* storage off: the run lasts this visit only */ }
 }
 
+/** A fresh save: New Game uses this so the shape lives in one place. */
+export function defaultSave() {
+  return { money: 0, missionsDone: 0, shells: [], best: { earned: 0, busted: 0 } };
+}
+
 export function clearSave() {
   try { window.localStorage.removeItem(SAVE_KEY); } catch (e) { /* ignore */ }
 }

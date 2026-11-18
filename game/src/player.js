@@ -85,7 +85,9 @@ export function createPlayer(scene) {
       state.camYaw -= mouse.x * 0.0028;
       state.camPitch = Math.max(-0.15, Math.min(0.9, state.camPitch + mouse.y * 0.0022));
       const mv = input.move();
-      const speed = input.sprint() ? PLAYER.sprintSpeed : PLAYER.walkSpeed;
+      // Jumps commit you: steering authority in the air is less than half.
+      const airFactor = state.grounded ? 1 : 0.45;
+      const speed = (input.sprint() ? PLAYER.sprintSpeed : PLAYER.walkSpeed) * airFactor;
       const sin = Math.sin(state.camYaw);
       const cos = Math.cos(state.camYaw);
       // Forward on screen is -Z rotated by camYaw; strafe is perpendicular.

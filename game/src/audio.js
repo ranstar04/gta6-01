@@ -101,6 +101,7 @@ export function createAudio() {
     coin() { tone(988, 0.08, 'triangle', 0.15); tone(1319, 0.14, 'triangle', 0.15, 0.06); },
     jingle() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.22, 'triangle', 0.2, i * 0.11)); },
     fail() { tone(220, 0.3, 'sawtooth', 0.15); tone(165, 0.4, 'sawtooth', 0.15, 0.15); },
+    wasted() { [392, 311, 233, 175].forEach((f, i) => tone(f, 0.35, 'triangle', 0.18, i * 0.22)); },
     update(dt, driving) {
       if (!ctx || muted) return;
       musicTimer += dt;

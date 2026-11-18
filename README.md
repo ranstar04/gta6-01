@@ -32,6 +32,13 @@ cops, and take the crown from **Silas Kross**.
 Steal cars, run missions, grab taxi fares and golden shells. Lose the heat at
 Fresh Coat — a repaint costs $150. Wanted stars decay when nobody can see you.
 
+## Screenshots
+
+- `screenshots/1-chase.jpg` — police chase: Vesper GT at 151 km/h, two cruisers behind, three stars.
+- `screenshots/2-street.jpg` — Rook on foot on a busy Calle Verde avenue.
+- `screenshots/3-mission.jpg` — the M5 warehouse shootout, enforcers with health bars.
+- `screenshots/4-title.jpg` — the title screen over the city vista.
+
 ## Structure
 
 - `game/index.html` — page, import map, canvas + HUD DOM, CSS.

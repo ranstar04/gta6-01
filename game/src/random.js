@@ -13,3 +13,12 @@ export function createRandom(seed) {
 export function range(rng, min, max) { return min + rng() * (max - min); }
 export function pick(rng, arr) { return arr[Math.floor(rng() * arr.length)]; }
 export function chance(rng, p) { return rng() < p; }
+// Fisher-Yates shuffle that returns a new array, leaving the input untouched.
+export function shuffle(arr, rng) {
+  const out = arr.slice();
+  for (let i = out.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}

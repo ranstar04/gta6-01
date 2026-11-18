@@ -159,7 +159,7 @@ G.events = {
     G.money -= bill;
     writeSave({ money: G.money, missionsDone: missions.index(), shells: G.collectedShells, best: G.stats });
     document.getElementById('wasted-text').textContent = `Hospital bill $${bill}. Mama Izzy is not pleased.`;
-    audio.fail();
+    audio.wasted();
     audio.siren(false);
     showScreen('wasted');
   },
@@ -340,6 +340,7 @@ function startGame(fresh) {
   resetWorld(seed);
   G.screen = 'play';
   showScreen('play');
+  hud.banner(fresh ? 'WELCOME TO SOLMARA' : 'WELCOME BACK, ROOK');
   hud.feed(fresh ? 'New game — welcome back to Solmara, Rook.' : `Welcome back, Rook. $${G.money.toLocaleString('en-US')} in your pocket.`);
 }
 

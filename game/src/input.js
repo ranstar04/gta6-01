@@ -63,5 +63,7 @@ export function createInput(canvas) {
     takeMouse() { const d = { x: mouseDX, y: mouseDY }; mouseDX = 0; mouseDY = 0; return d; },
     takeActions() { const t = actions; actions = 0; return t; },
     locked() { return locked; },
+    /** True while any key is held — for "press any key" prompts. */
+    anyKey() { return held.size > 0; },
   };
 }

@@ -56,6 +56,13 @@ export function createWorld(rng, spawns) {
     return 'Calle Verde';
   }
 
+  // True when a point sits on a road (within 7 m of a centre line) — used
+  // to keep spawns and waypoints out of building footprints.
+  function isOnRoad(x, z) {
+    for (const r of ROADS) if (Math.abs(x - r) < 7 || Math.abs(z - r) < 7) return true;
+    return false;
+  }
+
   function clampToCity(x, z) {
     return {
       x: Math.max(-CITY.half + 4, Math.min(CITY.half - 4, x)),
@@ -63,5 +70,5 @@ export function createWorld(rng, spawns) {
     };
   }
 
-  return { nearestRoad, randomRoadPoint, randomLoop, randomSidewalkPoint, district, clampToCity, spawns };
+  return { nearestRoad, randomRoadPoint, randomLoop, randomSidewalkPoint, district, clampToCity, isOnRoad, spawns };
 }
